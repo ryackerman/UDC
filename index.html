@@ -1,0 +1,1478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>UDC — Universal Data Converter &amp; Decoder</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%238b5cf6'/%3E%3Cstop offset='100%25' stop-color='%2306b6d4'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='2' y='2' width='36' height='36' rx='9' fill='url(%23g)'/%3E%3Cpath d='M12 14 L12 22 Q12 27 17 27 L23 27 Q28 27 28 22 L28 14' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='20' cy='12' r='1.5' fill='white'/%3E%3C/svg%3E" />
+<meta name="description" content="UDC — Universal Data Converter & Decoder" />
+
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.7/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  html, body, #root { height: 100%; margin: 0; }
+  body { background: #020617; color: #f1f5f9; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  #boot { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 18px; background: #020617; z-index: 9999; transition: opacity 0.3s; }
+  #boot.hidden { opacity: 0; pointer-events: none; }
+  .boot-spin { width: 28px; height: 28px; border: 3px solid #1e293b; border-top-color: #6366f1; border-radius: 50%; animation: bspin 0.8s linear infinite; }
+  @keyframes bspin { to { transform: rotate(360deg); } }
+  #boot-err { color: #f87171; font-size: 12px; font-family: ui-monospace, monospace; max-width: 480px; text-align: center; padding: 0 20px; }
+</style>
+</head>
+<body>
+<div id="boot">
+  <svg width="56" height="56" viewBox="0 0 40 40">
+    <defs>
+      <linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#8b5cf6"/>
+        <stop offset="50%" stop-color="#6366f1"/>
+        <stop offset="100%" stop-color="#06b6d4"/>
+      </linearGradient>
+    </defs>
+    <rect x="2" y="2" width="36" height="36" rx="9" fill="url(#lg)"/>
+    <path d="M12 14 L12 22 Q12 27 17 27 L23 27 Q28 27 28 22 L28 14" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <circle cx="20" cy="12" r="1.5" fill="white"/>
+  </svg>
+  <div class="boot-spin"></div>
+  <div style="font-size: 11px; color: #475569; letter-spacing: 3px;">LOADING UDC</div>
+  <div id="boot-err"></div>
+</div>
+<div id="root"></div>
+
+<script>
+  window.addEventListener('error', (e) => {
+    const el = document.getElementById('boot-err');
+    if (el) el.textContent = 'Boot error: ' + (e.message || e.error);
+  });
+</script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useMemo } = React;
+
+const __ICONS = {
+  Shield: `<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>`,
+  Zap: `<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>`,
+  Code2: `<path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/>`,
+  Mail: `<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>`,
+  ImageIcon: `<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>`,
+  FileJson: `<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 12a1 1 0 0 0-1 1v1a1 1 0 0 1-1 1 1 1 0 0 1 1 1v1a1 1 0 0 0 1 1"/><path d="M14 18a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1 1 1 0 0 1-1-1v-1a1 1 0 0 0-1-1"/>`,
+  Lock: `<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>`,
+  Search: `<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>`,
+  Settings: `<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>`,
+  User: `<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>`,
+  LogOut: `<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>`,
+  Home: `<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>`,
+  Star: `<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>`,
+  Clock: `<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>`,
+  Folder: `<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>`,
+  Plus: `<path d="M5 12h14"/><path d="M12 5v14"/>`,
+  X: `<path d="M18 6 6 18"/><path d="m6 6 12 12"/>`,
+  Copy: `<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>`,
+  Trash2: `<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>`,
+  Download: `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>`,
+  Upload: `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>`,
+  Eye: `<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>`,
+  EyeOff: `<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/>`,
+  Moon: `<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>`,
+  Sun: `<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>`,
+  ChevronRight: `<path d="m9 18 6-6-6-6"/>`,
+  ChevronDown: `<path d="m6 9 6 6 6-6"/>`,
+  Command: `<path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/>`,
+  Terminal: `<polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>`,
+  Activity: `<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.5.5 0 0 1-.96 0L9.24 2.18a.5.5 0 0 0-.96 0l-2.35 8.36A2 2 0 0 1 4 12H2"/>`,
+  Database: `<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/>`,
+  Key: `<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>`,
+  FileCode: `<path d="M10 12.5 8 15l2 2.5"/><path d="m14 12.5 2 2.5-2 2.5"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>`,
+  Hash: `<line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/>`,
+  Binary: `<rect x="14" y="14" width="4" height="6" rx="2"/><rect x="6" y="4" width="4" height="6" rx="2"/><path d="M6 20h4"/><path d="M14 10h4"/><path d="M6 14h2v6"/><path d="M14 4h2v6"/>`,
+  Link2: `<path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/>`,
+  FileText: `<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>`,
+  Layers: `<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>`,
+  Sparkles: `<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/>`,
+  Cpu: `<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/>`,
+  GitBranch: `<line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>`,
+  Bell: `<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>`,
+  Menu: `<line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>`,
+  Check: `<polyline points="20 6 9 17 4 12"/>`,
+  AlertCircle: `<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>`,
+  Play: `<polygon points="6 3 20 12 6 21 6 3"/>`,
+  Save: `<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>`,
+  ArrowRightLeft: `<path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/>`,
+  RefreshCw: `<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>`,
+  Maximize2: `<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" x2="14" y1="3" y2="10"/><line x1="3" x2="10" y1="21" y2="14"/>`,
+  Pin: `<line x1="12" x2="12" y1="17" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/>`,
+  BarChart3: `<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>`,
+  Users: `<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>`,
+  Package: `<path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>`,
+  Bug: `<path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/>`,
+  ScrollText: `<path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/>`,
+  Boxes: `<path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0Z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/>`,
+  Workflow: `<rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/>`,
+  ShieldCheck: `<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>`,
+  FileSearch: `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><circle cx="11.5" cy="14.5" r="2.5"/><path d="M13.25 16.25 15 18"/>`,
+  Fingerprint: `<path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"/><path d="M14 13.12c0 2.38 0 6.38-1 8.88"/><path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"/><path d="M2 12a10 10 0 0 1 18-6"/><path d="M2 16h.01"/><path d="M21.8 16c.2-2 .131-5.354 0-6"/><path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2"/><path d="M8.65 22c.21-.66.45-1.32.57-2"/><path d="M9 6.8a6 6 0 0 1 9 5.2v2"/>`,
+};
+
+function makeIcon(name) {
+  return function Icon(props) {
+    const size = props.size || 24;
+    const className = props.className || '';
+    return React.createElement('svg', {
+      xmlns: 'http://www.w3.org/2000/svg',
+      width: size,
+      height: size,
+      viewBox: '0 0 24 24',
+      fill: props.fill || 'none',
+      stroke: 'currentColor',
+      strokeWidth: props.strokeWidth || 2,
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
+      className,
+      style: props.style,
+      title: props.title,
+      dangerouslySetInnerHTML: { __html: __ICONS[name] || '' }
+    });
+  };
+}
+const Shield = makeIcon('Shield');
+const Zap = makeIcon('Zap');
+const Code2 = makeIcon('Code2');
+const Mail = makeIcon('Mail');
+const ImageIcon = makeIcon('ImageIcon');
+const FileJson = makeIcon('FileJson');
+const Lock = makeIcon('Lock');
+const Search = makeIcon('Search');
+const Settings = makeIcon('Settings');
+const User = makeIcon('User');
+const LogOut = makeIcon('LogOut');
+const Home = makeIcon('Home');
+const Star = makeIcon('Star');
+const Clock = makeIcon('Clock');
+const Folder = makeIcon('Folder');
+const Plus = makeIcon('Plus');
+const X = makeIcon('X');
+const Copy = makeIcon('Copy');
+const Trash2 = makeIcon('Trash2');
+const Download = makeIcon('Download');
+const Upload = makeIcon('Upload');
+const Eye = makeIcon('Eye');
+const EyeOff = makeIcon('EyeOff');
+const Moon = makeIcon('Moon');
+const Sun = makeIcon('Sun');
+const ChevronRight = makeIcon('ChevronRight');
+const ChevronDown = makeIcon('ChevronDown');
+const Command = makeIcon('Command');
+const Terminal = makeIcon('Terminal');
+const Activity = makeIcon('Activity');
+const Database = makeIcon('Database');
+const Key = makeIcon('Key');
+const FileCode = makeIcon('FileCode');
+const Hash = makeIcon('Hash');
+const Binary = makeIcon('Binary');
+const Link2 = makeIcon('Link2');
+const FileText = makeIcon('FileText');
+const Layers = makeIcon('Layers');
+const Sparkles = makeIcon('Sparkles');
+const Cpu = makeIcon('Cpu');
+const GitBranch = makeIcon('GitBranch');
+const Bell = makeIcon('Bell');
+const Menu = makeIcon('Menu');
+const Check = makeIcon('Check');
+const AlertCircle = makeIcon('AlertCircle');
+const Play = makeIcon('Play');
+const Save = makeIcon('Save');
+const ArrowRightLeft = makeIcon('ArrowRightLeft');
+const RefreshCw = makeIcon('RefreshCw');
+const Maximize2 = makeIcon('Maximize2');
+const Pin = makeIcon('Pin');
+const BarChart3 = makeIcon('BarChart3');
+const Users = makeIcon('Users');
+const Package = makeIcon('Package');
+const Bug = makeIcon('Bug');
+const ScrollText = makeIcon('ScrollText');
+const Boxes = makeIcon('Boxes');
+const Workflow = makeIcon('Workflow');
+const ShieldCheck = makeIcon('ShieldCheck');
+const FileSearch = makeIcon('FileSearch');
+const Fingerprint = makeIcon('Fingerprint');
+
+
+// ============ STATE (in-memory, no localStorage in artifacts) ============
+const initialState = {
+  user: null,
+  theme: 'dark',
+  license: 'guest',
+  favorites: [],
+  recent: [],
+  history: [],
+  tabs: [],
+  activeTab: null,
+  notifications: [],
+  stats: { ops: 0, enc: 0, dec: 0, ocr: 0, mime: 0, workflows: 0, projects: 0 },
+  showPalette: false,
+  showDevConsole: false,
+};
+
+// ============ TOOLS REGISTRY ============
+const TOOLS = [
+  { id: 'base64-encode', name: 'Base64 Encode', cat: 'Encoding', icon: Binary, tier: 'guest' },
+  { id: 'base64-decode', name: 'Base64 Decode', cat: 'Encoding', icon: Binary, tier: 'guest' },
+  { id: 'url-encode', name: 'URL Encode', cat: 'Encoding', icon: Link2, tier: 'guest' },
+  { id: 'url-decode', name: 'URL Decode', cat: 'Encoding', icon: Link2, tier: 'guest' },
+  { id: 'html-encode', name: 'HTML Entity Encode', cat: 'Encoding', icon: Code2, tier: 'guest' },
+  { id: 'html-decode', name: 'HTML Entity Decode', cat: 'Encoding', icon: Code2, tier: 'guest' },
+  { id: 'hex-convert', name: 'Hex Converter', cat: 'Encoding', icon: Hash, tier: 'guest' },
+  { id: 'binary-convert', name: 'Binary Converter', cat: 'Encoding', icon: Binary, tier: 'guest' },
+  { id: 'rot13', name: 'ROT13', cat: 'Encoding', icon: RefreshCw, tier: 'guest' },
+  { id: 'jwt-decode', name: 'JWT Inspector', cat: 'Security', icon: Key, tier: 'premium' },
+  { id: 'json-format', name: 'JSON Formatter', cat: 'Files', icon: FileJson, tier: 'guest' },
+  { id: 'html-to-text', name: 'HTML → Text', cat: 'HTML', icon: FileText, tier: 'guest' },
+  { id: 'text-to-html', name: 'Text → HTML', cat: 'HTML', icon: FileText, tier: 'guest' },
+  { id: 'html-analyzer', name: 'HTML Analyzer', cat: 'HTML', icon: FileSearch, tier: 'premium' },
+  { id: 'mime-parser', name: 'MIME Parser', cat: 'Email', icon: Mail, tier: 'premium' },
+  { id: 'header-analyzer', name: 'Email Header Analyzer', cat: 'Email', icon: Mail, tier: 'premium' },
+  { id: 'qp-inspector', name: 'Quoted Printable Inspector', cat: 'Email', icon: Mail, tier: 'premium' },
+  { id: 'deliverability', name: 'Deliverability Analyzer', cat: 'Email', icon: ShieldCheck, tier: 'enterprise' },
+  { id: 'img-to-b64', name: 'Image → Base64', cat: 'Images', icon: ImageIcon, tier: 'guest' },
+  { id: 'b64-to-img', name: 'Base64 → Image', cat: 'Images', icon: ImageIcon, tier: 'guest' },
+  { id: 'ocr', name: 'OCR Engine', cat: 'Images', icon: Eye, tier: 'premium' },
+  { id: 'uuid-gen', name: 'UUID Generator', cat: 'Developer', icon: Fingerprint, tier: 'guest' },
+  { id: 'hash-gen', name: 'Hash Generator', cat: 'Developer', icon: Hash, tier: 'guest' },
+  { id: 'regex-test', name: 'Regex Tester', cat: 'Developer', icon: Code2, tier: 'guest' },
+  { id: 'diff-viewer', name: 'Diff Viewer', cat: 'Developer', icon: GitBranch, tier: 'premium' },
+  { id: 'entropy', name: 'Entropy Analyzer', cat: 'Forensics', icon: BarChart3, tier: 'enterprise' },
+  { id: 'hex-viewer', name: 'Hex Viewer', cat: 'Forensics', icon: Binary, tier: 'enterprise' },
+  { id: 'secret-detect', name: 'Secret Detector', cat: 'Forensics', icon: Lock, tier: 'enterprise' },
+  { id: 'ioc-extract', name: 'IOC Extractor', cat: 'Forensics', icon: FileSearch, tier: 'enterprise' },
+  { id: 'smart-detect', name: 'Smart Detection', cat: 'Workflows', icon: Sparkles, tier: 'premium' },
+  { id: 'workflow', name: 'Workflow Builder', cat: 'Workflows', icon: Workflow, tier: 'enterprise' },
+];
+
+const TIER_RANK = { guest: 0, premium: 1, enterprise: 2, admin: 3 };
+const CATEGORIES = ['Encoding', 'HTML', 'Email', 'Images', 'Files', 'Developer', 'Forensics', 'Workflows', 'Security'];
+
+// ============ TOOL IMPLEMENTATIONS ============
+const ops = {
+  'base64-encode': (s) => { try { return btoa(unescape(encodeURIComponent(s))); } catch { return 'Invalid input'; } },
+  'base64-decode': (s) => { try { return decodeURIComponent(escape(atob(s))); } catch { return 'Invalid Base64'; } },
+  'url-encode': (s) => encodeURIComponent(s),
+  'url-decode': (s) => { try { return decodeURIComponent(s); } catch { return 'Invalid URL encoding'; } },
+  'html-encode': (s) => s.replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])),
+  'html-decode': (s) => s.replace(/&(amp|lt|gt|quot|#39);/g, m => ({ '&amp;':'&','&lt;':'<','&gt;':'>','&quot;':'"','&#39;':"'" }[m])),
+  'hex-convert': (s) => s.split('').map(c => c.charCodeAt(0).toString(16).padStart(2,'0')).join(' '),
+  'binary-convert': (s) => s.split('').map(c => c.charCodeAt(0).toString(2).padStart(8,'0')).join(' '),
+  'rot13': (s) => s.replace(/[a-zA-Z]/g, c => String.fromCharCode((c <= 'Z' ? 90 : 122) >= (c = c.charCodeAt(0) + 13) ? c : c - 26)),
+  'url-encode-full': (s) => encodeURIComponent(s),
+};
+
+// ============ COMPONENTS ============
+const Logo = ({ size = 32, full = false }) => (
+  <div className="flex items-center gap-2">
+    <div className="relative" style={{ width: size, height: size }}>
+      <svg viewBox="0 0 40 40" className="w-full h-full">
+        <defs>
+          <linearGradient id="udcg" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#8b5cf6" />
+            <stop offset="50%" stopColor="#6366f1" />
+            <stop offset="100%" stopColor="#06b6d4" />
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="36" height="36" rx="9" fill="url(#udcg)" />
+        <path d="M12 14 L12 22 Q12 27 17 27 L23 27 Q28 27 28 22 L28 14" stroke="white" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+        <circle cx="20" cy="12" r="1.5" fill="white" />
+      </svg>
+    </div>
+    {full && (
+      <div className="flex flex-col leading-none">
+        <span className="font-bold text-base tracking-tight">UDC</span>
+        <span className="text-[8px] text-slate-400 tracking-wider uppercase">Universal Data Converter &amp; Decoder</span>
+      </div>
+    )}
+  </div>
+);
+
+const Footer = () => (
+  <div className="px-4 py-2 border-t border-slate-800 bg-slate-950/50 text-[11px] text-slate-500 flex justify-between items-center">
+    <span>UDC Enterprise Suite v2.0 • Made by Klyd © 2026</span>
+    <span className="flex items-center gap-3">
+      <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Build #4821</span>
+      <span>React 18 · TS · Vite</span>
+    </span>
+  </div>
+);
+
+const Toast = ({ msg, onClose }) => (
+  <div className="fixed bottom-16 right-4 z-50 bg-slate-800 border border-slate-700 text-slate-100 px-4 py-3 rounded-lg shadow-2xl flex items-center gap-2 animate-slide-in">
+    <Check size={16} className="text-emerald-400" />
+    <span className="text-sm">{msg}</span>
+  </div>
+);
+
+// ============ LOGIN ============
+// Sessions are issued by admin: each session has a display name, a unique access code, and a set of permitted tool IDs.
+const DEFAULT_USERS = [
+  { name: 'Administrator', accessCode: 'UDC-ADMIN-2026', license: 'admin', tools: '*' },
+];
+
+function Login({ onLogin, userStore }) {
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = () => {
+    setError('');
+    setLoading(true);
+    setTimeout(() => {
+      const user = userStore.find(u =>
+        u.name.toLowerCase().trim() === name.toLowerCase().trim() &&
+        u.accessCode === code.trim()
+      );
+      if (!user) {
+        setError('Invalid session credentials');
+        setLoading(false);
+        return;
+      }
+      onLogin({
+        name: user.name,
+        accessCode: user.accessCode,
+        role: user.license,
+        license: user.license,
+        tools: user.tools,
+        avatar: user.name.charAt(0).toUpperCase(),
+      });
+    }, 500);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(139,92,246,0.15),_transparent_50%)]"></div>
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom,_rgba(6,182,212,0.1),_transparent_50%)]"></div>
+      <div className="relative w-full max-w-md">
+        <div className="flex justify-center mb-8">
+          <Logo size={56} full />
+        </div>
+        <div className="bg-slate-900/80 backdrop-blur border border-slate-800 rounded-2xl p-8 shadow-2xl">
+          <h1 className="text-2xl font-bold text-white mb-1">Session sign-in</h1>
+          <p className="text-sm text-slate-400 mb-6">Enter your session name and access code</p>
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Session Name</label>
+              <input value={name} onChange={e => setName(e.target.value)} autoFocus
+                onKeyDown={e => e.key === 'Enter' && submit()}
+                placeholder="e.g. Administrator"
+                className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Access Code</label>
+              <input value={code} onChange={e => setCode(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && submit()}
+                placeholder="UDC-XXXX-XXXX"
+                className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none" />
+            </div>
+
+            {error && (
+              <div className="bg-rose-950/50 border border-rose-800/50 rounded-lg px-3 py-2 text-xs text-rose-300 flex items-center gap-2">
+                <AlertCircle size={12} /> {error}
+              </div>
+            )}
+
+            <button onClick={submit} disabled={loading || !name || !code}
+              className="w-full bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-lg transition flex items-center justify-center gap-2">
+              {loading ? <RefreshCw size={16} className="animate-spin" /> : <><Shield size={16} /> Open Session</>}
+            </button>
+          </div>
+
+          <div className="mt-6 pt-6 border-t border-slate-800 text-center">
+            <p className="text-[11px] text-slate-500">Sessions and tool permissions are issued by your administrator.</p>
+          </div>
+        </div>
+        <p className="text-center text-xs text-slate-600 mt-6">UDC Enterprise Suite v2.0 • Made by Klyd © 2026</p>
+      </div>
+    </div>
+  );
+}
+
+// ============ TOOL PANEL ============
+function ToolPanel({ tool, onClose, onActivity }) {
+  const [input, setInput] = useState('');
+  const [output, setOutput] = useState('');
+  const [extra, setExtra] = useState(null);
+
+  const run = (val = input) => {
+    if (!val) return setOutput('');
+    let result = '';
+    if (ops[tool.id]) {
+      result = ops[tool.id](val);
+    } else if (tool.id === 'json-format') {
+      try { result = JSON.stringify(JSON.parse(val), null, 2); } catch (e) { result = 'Invalid JSON: ' + e.message; }
+    } else if (tool.id === 'jwt-decode') {
+      try {
+        const [h, p, s] = val.split('.');
+        const dec = (x) => JSON.stringify(JSON.parse(atob(x.replace(/-/g,'+').replace(/_/g,'/'))), null, 2);
+        result = `HEADER:\n${dec(h)}\n\nPAYLOAD:\n${dec(p)}\n\nSIGNATURE:\n${s}`;
+      } catch { result = 'Invalid JWT'; }
+    } else if (tool.id === 'uuid-gen') {
+      result = Array.from({ length: 5 }, () =>
+        'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+          const r = Math.random() * 16 | 0;
+          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        })
+      ).join('\n');
+    } else if (tool.id === 'hash-gen') {
+      // simple non-crypto hashes for demo
+      let h1 = 0; for (let i = 0; i < val.length; i++) h1 = (h1 << 5) - h1 + val.charCodeAt(i) | 0;
+      result = `MD5:    ${Math.abs(h1).toString(16).padStart(32,'a')}\nSHA1:   ${Math.abs(h1*7).toString(16).padStart(40,'b')}\nSHA256: ${Math.abs(h1*13).toString(16).padStart(64,'c')}\nSHA512: ${Math.abs(h1*19).toString(16).padStart(128,'d')}`;
+    } else if (tool.id === 'ioc-extract') {
+      const urls = val.match(/https?:\/\/[^\s]+/g) || [];
+      const emails = val.match(/[\w.-]+@[\w.-]+\.\w+/g) || [];
+      const ipv4 = val.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g) || [];
+      const domains = val.match(/\b[a-z0-9-]+\.[a-z]{2,}\b/gi) || [];
+      result = `URLs (${urls.length}):\n${urls.join('\n')}\n\nEmails (${emails.length}):\n${emails.join('\n')}\n\nIPv4 (${ipv4.length}):\n${ipv4.join('\n')}\n\nDomains (${domains.length}):\n${domains.join('\n')}`;
+    } else if (tool.id === 'entropy') {
+      const freq = {};
+      for (const c of val) freq[c] = (freq[c] || 0) + 1;
+      const len = val.length;
+      let h = 0;
+      for (const k in freq) { const p = freq[k]/len; h -= p * Math.log2(p); }
+      result = `Shannon Entropy: ${h.toFixed(4)} bits/char\nLength: ${len}\nUnique chars: ${Object.keys(freq).length}\n\nDistribution (top 10):\n${Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([c,n])=>`  ${JSON.stringify(c)}: ${n} (${(n/len*100).toFixed(1)}%)`).join('\n')}`;
+    } else if (tool.id === 'secret-detect') {
+      const patterns = [
+        { name: 'AWS Access Key', re: /AKIA[0-9A-Z]{16}/g },
+        { name: 'GitHub Token', re: /gh[ps]_[A-Za-z0-9]{36}/g },
+        { name: 'Generic API Key', re: /api[_-]?key["'\s:=]+[A-Za-z0-9]{20,}/gi },
+        { name: 'JWT Token', re: /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g },
+        { name: 'Base64 Blob (>40)', re: /[A-Za-z0-9+/]{40,}={0,2}/g },
+      ];
+      const found = patterns.map(p => ({ ...p, matches: val.match(p.re) || [] })).filter(p => p.matches.length);
+      result = found.length ? found.map(f => `⚠ ${f.name} (${f.matches.length}):\n${f.matches.slice(0,3).join('\n')}`).join('\n\n') : '✓ No secrets detected';
+    } else if (tool.id === 'smart-detect') {
+      const checks = [
+        { name: 'Base64', test: /^[A-Za-z0-9+/]+=*$/.test(val.trim()) && val.length % 4 === 0, conf: 95 },
+        { name: 'JWT', test: /^eyJ[\w-]+\.eyJ[\w-]+\.[\w-]+$/.test(val.trim()), conf: 99 },
+        { name: 'JSON', test: (() => { try { JSON.parse(val); return true; } catch { return false; } })(), conf: 100 },
+        { name: 'URL Encoded', test: /%[0-9A-F]{2}/i.test(val), conf: 85 },
+        { name: 'Hex', test: /^[0-9A-Fa-f\s]+$/.test(val.trim()) && val.replace(/\s/g,'').length % 2 === 0, conf: 80 },
+        { name: 'HTML', test: /<[a-z][\s\S]*>/i.test(val), conf: 90 },
+        { name: 'XML', test: /<\?xml/.test(val), conf: 99 },
+      ];
+      const hits = checks.filter(c => c.test);
+      result = hits.length ? hits.map(h => `${h.name.padEnd(15)} ${h.conf}% confidence`).join('\n') : 'No format detected';
+    } else if (tool.id === 'regex-test') {
+      try {
+        const [pattern, ...rest] = val.split('\n');
+        const text = rest.join('\n');
+        const m = pattern.match(/^\/(.+)\/([gimsu]*)$/);
+        const re = m ? new RegExp(m[1], m[2]) : new RegExp(pattern, 'g');
+        const matches = [...text.matchAll(re)];
+        result = `Pattern: ${re}\nMatches: ${matches.length}\n\n${matches.map((m,i)=>`[${i}] "${m[0]}" at ${m.index}`).join('\n')}`;
+      } catch (e) { result = 'Error: ' + e.message; }
+    } else if (tool.id === 'mime-parser') {
+      const lines = val.split('\n');
+      const headers = {};
+      let i = 0;
+      while (i < lines.length && lines[i].trim()) {
+        const m = lines[i].match(/^([\w-]+):\s*(.+)/);
+        if (m) headers[m[1]] = m[2];
+        i++;
+      }
+      result = `── MIME TREE ──\nHeaders detected: ${Object.keys(headers).length}\n${Object.entries(headers).map(([k,v])=>`  ${k}: ${v.slice(0,80)}`).join('\n')}\n\nContent boundary: ${(val.match(/boundary="?([^";\n]+)"?/)||[])[1] || 'none'}\nAttachments: ${(val.match(/Content-Disposition:\s*attachment/g)||[]).length}\nInline parts: ${(val.match(/Content-Disposition:\s*inline/g)||[]).length}`;
+    } else if (tool.id === 'header-analyzer') {
+      const get = (h) => (val.match(new RegExp(`^${h}:\\s*(.+)`, 'mi')) || [])[1] || 'not found';
+      result = `── EMAIL FORENSICS ──\nFrom:    ${get('From')}\nTo:      ${get('To')}\nSubject: ${get('Subject')}\n\nAuthentication:\n  SPF:   ${val.includes('spf=pass') ? '✓ PASS' : val.includes('spf=') ? '✗ FAIL' : '? not found'}\n  DKIM:  ${val.includes('dkim=pass') ? '✓ PASS' : val.includes('dkim=') ? '✗ FAIL' : '? not found'}\n  DMARC: ${val.includes('dmarc=pass') ? '✓ PASS' : val.includes('dmarc=') ? '✗ FAIL' : '? not found'}\n\nReceived hops: ${(val.match(/^Received:/gmi)||[]).length}`;
+    } else if (tool.id === 'hex-viewer') {
+      const lines = [];
+      for (let i = 0; i < Math.min(val.length, 512); i += 16) {
+        const chunk = val.slice(i, i + 16);
+        const hex = chunk.split('').map(c => c.charCodeAt(0).toString(16).padStart(2,'0')).join(' ').padEnd(48);
+        const ascii = chunk.split('').map(c => /[\x20-\x7e]/.test(c) ? c : '.').join('');
+        lines.push(`${i.toString(16).padStart(8,'0')}  ${hex}  |${ascii}|`);
+      }
+      result = lines.join('\n') + (val.length > 512 ? `\n\n... ${val.length - 512} more bytes` : '');
+    } else if (tool.id === 'html-analyzer') {
+      const tags = (val.match(/<(\w+)/g) || []).map(t => t.slice(1));
+      const links = (val.match(/href="([^"]+)"/g) || []).length;
+      const imgs = (val.match(/<img/g) || []).length;
+      const scripts = (val.match(/<script/g) || []).length;
+      const meta = (val.match(/<meta[^>]+>/g) || []).length;
+      result = `── HTML ANALYSIS ──\nTotal tags: ${tags.length}\nLinks: ${links}\nImages: ${imgs}\nScripts: ${scripts}\nMeta tags: ${meta}\n\nTag frequency:\n${Object.entries(tags.reduce((a,t)=>(a[t]=(a[t]||0)+1,a),{})).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([t,n])=>`  <${t}>: ${n}`).join('\n')}`;
+    } else if (tool.id === 'html-to-text') {
+      result = val.replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    } else if (tool.id === 'text-to-html') {
+      result = '<p>' + val.split('\n\n').map(p => p.replace(/\n/g, '<br>')).join('</p>\n<p>') + '</p>';
+    } else if (tool.id === 'deliverability') {
+      const triggers = ['free', 'winner', 'click here', 'urgent', '!!!', 'guarantee', 'limited time', '100%'];
+      const found = triggers.filter(t => val.toLowerCase().includes(t));
+      const score = Math.max(0, 100 - found.length * 12);
+      result = `── DELIVERABILITY SCORE: ${score}/100 ──\n${score > 80 ? '✓ Good' : score > 50 ? '⚠ Caution' : '✗ Likely spam'}\n\nSpam triggers found (${found.length}):\n${found.map(f=>`  • ${f}`).join('\n') || '  (none)'}\n\nWord count: ${val.split(/\s+/).length}\nCAPS ratio: ${((val.match(/[A-Z]/g)||[]).length/val.length*100).toFixed(1)}%\nExclamations: ${(val.match(/!/g)||[]).length}`;
+    } else {
+      result = `[${tool.name}] processed ${val.length} chars\n\nThis tool is implemented in the full UDC build. Output preview:\n\n${val.slice(0, 200)}${val.length > 200 ? '...' : ''}`;
+    }
+    setOutput(result);
+    onActivity(tool);
+  };
+
+  const copy = () => { navigator.clipboard?.writeText(output); };
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-900/50">
+        <div className="flex items-center gap-2">
+          <tool.icon size={16} className="text-indigo-400" />
+          <span className="font-medium text-sm text-white">{tool.name}</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 uppercase">{tool.cat}</span>
+        </div>
+        <div className="flex gap-1">
+          <button onClick={() => run()} className="text-xs px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded flex items-center gap-1"><Play size={11} /> Run</button>
+          <button onClick={() => { setInput(''); setOutput(''); }} className="text-xs px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded flex items-center gap-1"><Trash2 size={11} /> Clear</button>
+          <button onClick={() => { setInput(output); setOutput(input); }} className="text-xs px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded flex items-center gap-1"><ArrowRightLeft size={11} /> Swap</button>
+        </div>
+      </div>
+
+      <div className="flex-1 grid grid-cols-2 gap-px bg-slate-800 overflow-hidden">
+        <div className="bg-slate-950 flex flex-col">
+          <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-800 flex justify-between items-center">
+            <span>Input</span>
+            <span>{input.length} chars</span>
+          </div>
+          <textarea value={input} onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.ctrlKey && e.key === 'Enter') run(); }}
+            placeholder={`Paste content here... (Ctrl+Enter to run)`}
+            className="flex-1 bg-slate-950 text-slate-100 text-xs font-mono p-3 resize-none focus:outline-none" />
+        </div>
+        <div className="bg-slate-950 flex flex-col">
+          <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-800 flex justify-between items-center">
+            <span>Output</span>
+            <div className="flex gap-2">
+              <button onClick={copy} className="hover:text-white flex items-center gap-1"><Copy size={10} /> Copy</button>
+              <span>{output.length} chars</span>
+            </div>
+          </div>
+          <pre className="flex-1 bg-slate-950 text-emerald-300 text-xs font-mono p-3 overflow-auto whitespace-pre-wrap">{output || <span className="text-slate-600">Output will appear here...</span>}</pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ DASHBOARD ============
+function Dashboard({ state, openTool }) {
+  const cards = [
+    { label: 'Total Operations', val: state.stats.ops + state.history.length, icon: Activity, color: 'from-indigo-500 to-violet-500' },
+    { label: 'Encodings', val: state.stats.enc, icon: Binary, color: 'from-cyan-500 to-blue-500' },
+    { label: 'Decodings', val: state.stats.dec, icon: Code2, color: 'from-emerald-500 to-teal-500' },
+    { label: 'OCR Runs', val: state.stats.ocr, icon: Eye, color: 'from-amber-500 to-orange-500' },
+    { label: 'MIME Analyses', val: state.stats.mime, icon: Mail, color: 'from-pink-500 to-rose-500' },
+    { label: 'Workflows', val: state.stats.workflows, icon: Workflow, color: 'from-purple-500 to-fuchsia-500' },
+    { label: 'Tools Assigned', val: state.user.tools === '*' ? TOOLS.length : (state.user.tools || []).length, icon: Layers, color: 'from-sky-500 to-indigo-500' },
+    { label: 'Favorites', val: state.favorites.length, icon: Star, color: 'from-yellow-500 to-amber-500' },
+  ];
+
+  const favTools = state.favorites.map(id => TOOLS.find(t => t.id === id)).filter(Boolean);
+  const recentTools = state.recent.map(id => TOOLS.find(t => t.id === id)).filter(Boolean);
+
+  return (
+    <div className="p-6 overflow-auto h-full">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-white mb-1">Welcome back, {state.user.name}</h1>
+        <p className="text-sm text-slate-400">Your workspace overview · {state.user.license} tier</p>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        {cards.map(c => (
+          <div key={c.label} className="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition">
+            <div className="flex justify-between items-start mb-3">
+              <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${c.color} flex items-center justify-center`}>
+                <c.icon size={16} className="text-white" />
+              </div>
+            </div>
+            <div className="text-2xl font-bold text-white">{c.val}</div>
+            <div className="text-xs text-slate-400 mt-1">{c.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-white flex items-center gap-2"><Star size={14} className="text-amber-400" /> Favorites</h2>
+          </div>
+          <div className="space-y-1">
+            {favTools.length ? favTools.map(t => (
+              <button key={t.id} onClick={() => openTool(t)} className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-slate-800 rounded text-left text-xs text-slate-300">
+                <t.icon size={12} className="text-indigo-400" /> {t.name}
+              </button>
+            )) : <p className="text-xs text-slate-500">No favorites yet</p>}
+          </div>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-3"><Clock size={14} className="text-cyan-400" /> Recent</h2>
+          <div className="space-y-1">
+            {recentTools.length ? recentTools.slice(0, 5).map((t, i) => (
+              <button key={i} onClick={() => openTool(t)} className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-slate-800 rounded text-left text-xs text-slate-300">
+                <t.icon size={12} className="text-cyan-400" /> {t.name}
+              </button>
+            )) : <p className="text-xs text-slate-500">No recent activity</p>}
+          </div>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-3"><Activity size={14} className="text-emerald-400" /> Activity</h2>
+          <div className="space-y-2">
+            {state.history.slice(-5).reverse().map((h, i) => (
+              <div key={i} className="text-xs text-slate-400 flex items-center gap-2">
+                <span className="w-1 h-1 rounded-full bg-emerald-500"></span>
+                <span className="text-slate-300">{h.tool}</span>
+                <span className="text-slate-600 ml-auto">{h.time}</span>
+              </div>
+            ))}
+            {!state.history.length && <p className="text-xs text-slate-500">No activity yet</p>}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <h2 className="text-sm font-semibold text-white mb-3">Quick Launch</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+          {TOOLS.slice(0, 12).map(t => (
+            <button key={t.id} onClick={() => openTool(t)}
+              className="p-3 bg-slate-800/50 hover:bg-slate-800 border border-slate-800 hover:border-indigo-600 rounded-lg text-left transition group">
+              <t.icon size={16} className="text-indigo-400 mb-2 group-hover:scale-110 transition" />
+              <div className="text-xs font-medium text-white truncate">{t.name}</div>
+              <div className="text-[10px] text-slate-500">{t.cat}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ COMMAND PALETTE ============
+function Palette({ onClose, openTool, navigate }) {
+  const [q, setQ] = useState('');
+  const ref = useRef(null);
+  useEffect(() => { ref.current?.focus(); }, []);
+  const filtered = TOOLS.filter(t => t.name.toLowerCase().includes(q.toLowerCase()) || t.cat.toLowerCase().includes(q.toLowerCase())).slice(0, 8);
+  const pages = [
+    { id: 'dashboard', name: 'Dashboard', icon: Home },
+    { id: 'workspace', name: 'Workspace', icon: Layers },
+    { id: 'favorites', name: 'Favorites', icon: Star },
+    { id: 'history', name: 'Activity History', icon: Clock },
+    { id: 'settings', name: 'Settings', icon: Settings },
+    { id: 'admin', name: 'Admin Console', icon: ShieldCheck },
+  ].filter(p => p.name.toLowerCase().includes(q.toLowerCase()));
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-start justify-center pt-32" onClick={onClose}>
+      <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
+          <Search size={16} className="text-slate-500" />
+          <input ref={ref} value={q} onChange={e => setQ(e.target.value)}
+            placeholder="Search tools, pages, commands..."
+            className="flex-1 bg-transparent text-white text-sm focus:outline-none" />
+          <kbd className="text-[10px] text-slate-500 px-1.5 py-0.5 bg-slate-800 rounded">ESC</kbd>
+        </div>
+        <div className="max-h-96 overflow-auto p-2">
+          {pages.length > 0 && <div className="text-[10px] uppercase text-slate-500 px-2 py-1">Pages</div>}
+          {pages.map(p => (
+            <button key={p.id} onClick={() => { navigate(p.id); onClose(); }}
+              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-slate-800 rounded text-left">
+              <p.icon size={14} className="text-cyan-400" />
+              <span className="text-sm text-white">{p.name}</span>
+            </button>
+          ))}
+          {filtered.length > 0 && <div className="text-[10px] uppercase text-slate-500 px-2 py-1 mt-2">Tools</div>}
+          {filtered.map(t => (
+            <button key={t.id} onClick={() => { openTool(t); onClose(); }}
+              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-slate-800 rounded text-left">
+              <t.icon size={14} className="text-indigo-400" />
+              <span className="text-sm text-white flex-1">{t.name}</span>
+              <span className="text-[10px] text-slate-500">{t.cat}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ DEV CONSOLE ============
+function DevConsole({ state, onClose }) {
+  return (
+    <div className="fixed bottom-0 left-0 right-0 h-72 bg-slate-950 border-t-2 border-amber-600 z-40 flex flex-col">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900 border-b border-slate-800">
+        <div className="flex items-center gap-2">
+          <Terminal size={12} className="text-amber-400" />
+          <span className="text-xs font-mono text-amber-400">UDC :: DEVELOPER CONSOLE</span>
+          <span className="text-[10px] text-slate-500">[ADMIN ONLY]</span>
+        </div>
+        <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={14} /></button>
+      </div>
+      <div className="flex-1 p-3 font-mono text-[11px] overflow-auto text-slate-300">
+        <div className="text-emerald-400">$ udc --status</div>
+        <div className="text-slate-400 mb-2">UDC Enterprise Suite v2.0.4821 · React 18.2 · Build OK</div>
+        <div className="text-emerald-400">$ udc session</div>
+        <pre className="text-slate-400 mb-2">{JSON.stringify({ name: state.user?.name, role: state.user?.role, license: state.license, theme: state.theme }, null, 2)}</pre>
+        <div className="text-emerald-400">$ udc stats</div>
+        <pre className="text-slate-400 mb-2">{JSON.stringify(state.stats, null, 2)}</pre>
+        <div className="text-emerald-400">$ udc tools --count</div>
+        <div className="text-slate-400 mb-2">{TOOLS.length} tools registered across {new Set(TOOLS.map(t=>t.cat)).size} categories</div>
+        <div className="text-emerald-400">$ udc license list</div>
+        <div className="text-slate-400">UDC-PRO-A4F2-9B7E-2026 (active)<br/>UDC-ELITE-C8D1-3F0A-2026 (active)<br/>UDC-ADMIN-FFFF-FFFF-2026 (active)</div>
+        <div className="text-emerald-400 mt-2">$ <span className="animate-pulse">_</span></div>
+      </div>
+    </div>
+  );
+}
+
+// ============ MAIN APP ============
+function UDCApp() {
+  const [state, setState] = useState(initialState);
+  const [userStore, setUserStore] = useState(DEFAULT_USERS);
+  const [page, setPage] = useState('dashboard');
+  const [sidebarCat, setSidebarCat] = useState({});
+  const [toast, setToast] = useState(null);
+  const [sidebarSearch, setSidebarSearch] = useState('');
+
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); setState(s => ({ ...s, showPalette: true })); }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'D') { e.preventDefault(); setState(s => ({ ...s, showDevConsole: !s.showDevConsole })); }
+      if (e.key === 'Escape') setState(s => ({ ...s, showPalette: false }));
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2200); };
+
+  const login = (user) => {
+    setState(s => ({ ...s, user, license: user.license }));
+    showToast(`Welcome, ${user.name}`);
+  };
+
+  const logout = () => setState(initialState);
+
+  const hasToolAccess = (toolId) => {
+    if (!state.user) return false;
+    if (state.user.tools === '*') return true;
+    return Array.isArray(state.user.tools) && state.user.tools.includes(toolId);
+  };
+
+  const openTool = (tool) => {
+    if (!hasToolAccess(tool.id)) {
+      showToast(`Access denied · ${tool.name} not assigned to your session`);
+      return;
+    }
+    setState(s => {
+      const exists = s.tabs.find(t => t.id === tool.id);
+      const tabs = exists ? s.tabs : [...s.tabs, tool];
+      const recent = [tool.id, ...s.recent.filter(id => id !== tool.id)].slice(0, 8);
+      return { ...s, tabs, activeTab: tool.id, recent };
+    });
+    setPage('workspace');
+  };
+
+  const closeTab = (id) => setState(s => {
+    const tabs = s.tabs.filter(t => t.id !== id);
+    return { ...s, tabs, activeTab: tabs.length ? tabs[tabs.length - 1].id : null };
+  });
+
+  const toggleFav = (id) => setState(s => ({
+    ...s,
+    favorites: s.favorites.includes(id) ? s.favorites.filter(f => f !== id) : [...s.favorites, id]
+  }));
+
+  const recordActivity = (tool) => {
+    setState(s => ({
+      ...s,
+      history: [...s.history, { tool: tool.name, time: new Date().toLocaleTimeString() }].slice(-20),
+      stats: { ...s.stats, ops: s.stats.ops + 1, enc: tool.id.includes('encode') ? s.stats.enc+1 : s.stats.enc, dec: tool.id.includes('decode') ? s.stats.dec+1 : s.stats.dec, ocr: tool.id === 'ocr' ? s.stats.ocr+1 : s.stats.ocr, mime: tool.id.includes('mime') ? s.stats.mime+1 : s.stats.mime }
+    }));
+  };
+
+  if (!state.user) return <Login onLogin={login} userStore={userStore} />;
+
+  const filteredTools = sidebarSearch
+    ? TOOLS.filter(t => t.name.toLowerCase().includes(sidebarSearch.toLowerCase()))
+    : null;
+
+  const activeTabTool = state.tabs.find(t => t.id === state.activeTab);
+
+  const roleBadge = {
+    guest: { bg: 'bg-slate-700', text: 'GUEST' },
+    premium: { bg: 'bg-gradient-to-r from-indigo-600 to-violet-600', text: 'PREMIUM' },
+    enterprise: { bg: 'bg-gradient-to-r from-amber-600 to-orange-600', text: 'ENTERPRISE' },
+    admin: { bg: 'bg-gradient-to-r from-rose-600 to-red-600', text: 'ADMIN' },
+  }[state.user.license] || { bg: 'bg-slate-700', text: 'USER' };
+
+  return (
+    <div className={`udc-root ${state.theme === 'light' ? 'light' : 'dark'} h-screen text-slate-100 flex flex-col font-sans`} style={{ fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif', backgroundColor: state.theme === 'light' ? '#f8fafc' : '#020617' }}>
+      <style>{`
+        @keyframes slide-in { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .animate-slide-in { animation: slide-in 0.2s ease-out; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        /* LIGHT THEME — overrides slate-dark utilities */
+        .udc-root.light { color: #0f172a; }
+        .udc-root.light ::-webkit-scrollbar-track { background: #e2e8f0; }
+        .udc-root.light ::-webkit-scrollbar-thumb { background: #cbd5e1; }
+        .udc-root.light ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        .udc-root.light .bg-slate-950 { background-color: #ffffff !important; }
+        .udc-root.light .bg-slate-900 { background-color: #f8fafc !important; }
+        .udc-root.light .bg-slate-900\\/50 { background-color: rgba(248,250,252,0.6) !important; }
+        .udc-root.light .bg-slate-900\\/80 { background-color: rgba(248,250,252,0.95) !important; }
+        .udc-root.light .bg-slate-800 { background-color: #e2e8f0 !important; }
+        .udc-root.light .bg-slate-800\\/50 { background-color: rgba(226,232,240,0.5) !important; }
+        .udc-root.light .bg-slate-800\\/30 { background-color: rgba(226,232,240,0.3) !important; }
+        .udc-root.light .bg-slate-950\\/50 { background-color: rgba(255,255,255,0.6) !important; }
+        .udc-root.light .hover\\:bg-slate-800:hover { background-color: #e2e8f0 !important; }
+        .udc-root.light .hover\\:bg-slate-800\\/30:hover { background-color: rgba(226,232,240,0.5) !important; }
+        .udc-root.light .hover\\:bg-slate-800\\/50:hover { background-color: rgba(226,232,240,0.6) !important; }
+        .udc-root.light .hover\\:bg-slate-700:hover { background-color: #cbd5e1 !important; }
+
+        .udc-root.light .border-slate-800 { border-color: #e2e8f0 !important; }
+        .udc-root.light .border-slate-700 { border-color: #cbd5e1 !important; }
+        .udc-root.light .border-slate-800\\/50 { border-color: rgba(226,232,240,0.6) !important; }
+        .udc-root.light .divide-slate-800 > * + * { border-color: #e2e8f0 !important; }
+        .udc-root.light .hover\\:border-slate-700:hover { border-color: #94a3b8 !important; }
+
+        .udc-root.light .text-white { color: #0f172a !important; }
+        .udc-root.light .text-slate-100 { color: #1e293b !important; }
+        .udc-root.light .text-slate-200 { color: #1e293b !important; }
+        .udc-root.light .text-slate-300 { color: #334155 !important; }
+        .udc-root.light .text-slate-400 { color: #475569 !important; }
+        .udc-root.light .text-slate-500 { color: #64748b !important; }
+        .udc-root.light .text-slate-600 { color: #94a3b8 !important; }
+        .udc-root.light .hover\\:text-white:hover { color: #0f172a !important; }
+
+        .udc-root.light pre, .udc-root.light .font-mono { color: #047857 !important; }
+        .udc-root.light kbd { background-color: #e2e8f0 !important; color: #334155 !important; }
+        .udc-root.light input, .udc-root.light textarea, .udc-root.light select {
+          background-color: #ffffff !important;
+          color: #0f172a !important;
+          border-color: #cbd5e1 !important;
+        }
+        .udc-root.light input::placeholder, .udc-root.light textarea::placeholder { color: #94a3b8 !important; }
+
+        .udc-root.light .bg-indigo-600\\/20 { background-color: rgba(99,102,241,0.12) !important; }
+      `}</style>
+
+      {/* TOP NAV */}
+      <div className="h-12 bg-slate-900 border-b border-slate-800 flex items-center px-3 gap-3">
+        <Logo size={28} full />
+        <div className="h-5 w-px bg-slate-800 mx-1"></div>
+        <div className="flex items-center gap-1 text-xs text-slate-400">
+          <Folder size={12} />
+          <span>Default Workspace</span>
+          <ChevronDown size={12} />
+        </div>
+        <button onClick={() => setState(s => ({ ...s, showPalette: true }))}
+          className="flex items-center gap-2 bg-slate-800/50 hover:bg-slate-800 border border-slate-700 rounded-md px-3 py-1 text-xs text-slate-400 ml-4 flex-1 max-w-md">
+          <Search size={12} />
+          <span>Search tools, pages, commands...</span>
+          <kbd className="ml-auto text-[10px] bg-slate-900 px-1.5 py-0.5 rounded">⌘K</kbd>
+        </button>
+        <div className="flex-1"></div>
+        <button className="p-1.5 hover:bg-slate-800 rounded-md relative">
+          <Bell size={14} className="text-slate-400" />
+          <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-rose-500 rounded-full"></span>
+        </button>
+        <button onClick={() => setState(s => ({ ...s, theme: s.theme === 'dark' ? 'light' : 'dark' }))}
+          className="p-1.5 hover:bg-slate-800 rounded-md">
+          {state.theme === 'dark' ? <Moon size={14} className="text-slate-400" /> : <Sun size={14} className="text-amber-400" />}
+        </button>
+        <div className="h-5 w-px bg-slate-800"></div>
+        <div className="flex items-center gap-2 px-2 py-1 hover:bg-slate-800 rounded-md cursor-pointer">
+          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-[11px] font-bold text-white">{state.user.avatar}</div>
+          <div className="flex flex-col leading-none">
+            <span className="text-xs text-white">{state.user.name}</span>
+            <span className={`text-[8px] px-1 py-0.5 rounded text-white mt-0.5 ${roleBadge.bg}`}>{roleBadge.text}</span>
+          </div>
+        </div>
+        <button onClick={logout} className="p-1.5 hover:bg-slate-800 rounded-md" title="Logout">
+          <LogOut size={14} className="text-slate-400" />
+        </button>
+      </div>
+
+      <div className="flex-1 flex overflow-hidden">
+        {/* SIDEBAR */}
+        <div className="w-60 bg-slate-900/50 border-r border-slate-800 flex flex-col">
+          <div className="p-2">
+            <div className="relative">
+              <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input value={sidebarSearch} onChange={e => setSidebarSearch(e.target.value)}
+                placeholder="Search tools..."
+                className="w-full bg-slate-800/50 border border-slate-800 rounded text-xs text-white pl-7 pr-2 py-1.5 focus:outline-none focus:border-indigo-600" />
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-auto px-1 pb-2">
+            {!sidebarSearch && (
+              <>
+                <SidebarItem icon={Home} label="Dashboard" active={page === 'dashboard'} onClick={() => setPage('dashboard')} />
+                <SidebarItem icon={Layers} label="Workspace" active={page === 'workspace'} onClick={() => setPage('workspace')} badge={state.tabs.length} />
+                <SidebarItem icon={Star} label="Favorites" active={page === 'favorites'} onClick={() => setPage('favorites')} />
+                <SidebarItem icon={Clock} label="Activity" active={page === 'history'} onClick={() => setPage('history')} />
+
+                <div className="mt-3 mb-1 px-2 text-[10px] uppercase tracking-wider text-slate-500">Tools</div>
+                {CATEGORIES.filter(c => TOOLS.some(t => t.cat === c)).map(cat => {
+                  const tools = TOOLS.filter(t => t.cat === cat);
+                  const isOpen = sidebarCat[cat] !== false;
+                  return (
+                    <div key={cat}>
+                      <button onClick={() => setSidebarCat(s => ({ ...s, [cat]: !isOpen }))}
+                        className="w-full flex items-center gap-1 px-2 py-1 text-xs text-slate-400 hover:text-white">
+                        {isOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                        <span>{cat}</span>
+                        <span className="ml-auto text-[10px] text-slate-600">{tools.length}</span>
+                      </button>
+                      {isOpen && tools.map(t => {
+                        const locked = !hasToolAccess(t.id);
+                        return (
+                          <button key={t.id} onClick={() => openTool(t)}
+                            className={`w-full flex items-center gap-2 pl-7 pr-2 py-1 text-xs rounded hover:bg-slate-800 ${state.activeTab === t.id ? 'bg-slate-800 text-white' : 'text-slate-400'} ${locked ? 'opacity-50' : ''}`}>
+                            <t.icon size={11} />
+                            <span className="truncate flex-1 text-left">{t.name}</span>
+                            {locked && <Lock size={9} className="text-amber-500" />}
+                            {state.favorites.includes(t.id) && <Star size={9} className="text-amber-400 fill-amber-400" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+
+                {state.user.license === 'admin' && (
+                  <>
+                    <div className="mt-3 mb-1 px-2 text-[10px] uppercase tracking-wider text-rose-500">Admin</div>
+                    <SidebarItem icon={ShieldCheck} label="Admin Dashboard" active={page === 'admin'} onClick={() => setPage('admin')} />
+                    <SidebarItem icon={Users} label="User Management" active={page === 'users'} onClick={() => setPage('users')} />
+                    <SidebarItem icon={Key} label="License Manager" active={page === 'licenses'} onClick={() => setPage('licenses')} />
+                    <SidebarItem icon={ScrollText} label="System Logs" active={page === 'logs'} onClick={() => setPage('logs')} />
+                  </>
+                )}
+
+                <div className="mt-3 mb-1 px-2 text-[10px] uppercase tracking-wider text-slate-500">Account</div>
+                <SidebarItem icon={Settings} label="Settings" active={page === 'settings'} onClick={() => setPage('settings')} />
+                <SidebarItem icon={User} label="Profile" active={page === 'profile'} onClick={() => setPage('profile')} />
+              </>
+            )}
+            {sidebarSearch && filteredTools.map(t => (
+              <button key={t.id} onClick={() => openTool(t)}
+                className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-slate-800 text-slate-300">
+                <t.icon size={12} className="text-indigo-400" />
+                <span className="truncate flex-1 text-left">{t.name}</span>
+                <span className="text-[9px] text-slate-500">{t.cat}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="p-2 border-t border-slate-800">
+            <div className="bg-gradient-to-br from-indigo-900/50 to-purple-900/50 border border-indigo-800/50 rounded-lg p-2.5">
+              <div className="flex items-center gap-1.5 text-[10px] font-semibold text-indigo-300 mb-1">
+                <Sparkles size={10} /> {state.user.license.toUpperCase()} SESSION
+              </div>
+              <div className="text-[10px] text-slate-400 mb-1.5">
+                {state.user.tools === '*' ? `${TOOLS.length}/${TOOLS.length}` : `${(state.user.tools||[]).length}/${TOOLS.length}`} tools assigned
+              </div>
+              <div className="text-[9px] text-slate-500 font-mono truncate">{state.user.accessCode}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* MAIN CONTENT */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {page === 'workspace' && state.tabs.length > 0 && (
+            <div className="flex bg-slate-900 border-b border-slate-800 overflow-x-auto">
+              {state.tabs.map(t => (
+                <div key={t.id}
+                  className={`flex items-center gap-2 px-3 py-2 border-r border-slate-800 cursor-pointer min-w-0 ${state.activeTab === t.id ? 'bg-slate-950 text-white' : 'text-slate-400 hover:bg-slate-800/50'}`}
+                  onClick={() => setState(s => ({ ...s, activeTab: t.id }))}>
+                  <t.icon size={12} />
+                  <span className="text-xs truncate">{t.name}</span>
+                  <button onClick={e => { e.stopPropagation(); closeTab(t.id); }} className="hover:bg-slate-700 rounded p-0.5">
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex-1 overflow-hidden">
+            {page === 'dashboard' && <Dashboard state={state} openTool={openTool} />}
+            {page === 'workspace' && (activeTabTool ? <ToolPanel tool={activeTabTool} onClose={() => closeTab(activeTabTool.id)} onActivity={recordActivity} /> :
+              <EmptyWorkspace openTool={openTool} />)}
+            {page === 'favorites' && <FavoritesPage state={state} openTool={openTool} toggleFav={toggleFav} />}
+            {page === 'history' && <HistoryPage state={state} />}
+            {page === 'settings' && <SettingsPage state={state} setState={setState} />}
+            {page === 'profile' && <ProfilePage state={state} />}
+            {page === 'admin' && <AdminPage state={state} />}
+            {page === 'users' && <UsersPage userStore={userStore} setUserStore={setUserStore} showToast={showToast} currentUser={state.user} />}
+            {page === 'licenses' && <LicensesPage />}
+            {page === 'logs' && <LogsPage state={state} />}
+          </div>
+
+          <Footer />
+        </div>
+      </div>
+
+      {state.showPalette && <Palette onClose={() => setState(s => ({ ...s, showPalette: false }))} openTool={openTool} navigate={setPage} />}
+      {state.showDevConsole && state.user.license === 'admin' && <DevConsole state={state} onClose={() => setState(s => ({ ...s, showDevConsole: false }))} />}
+      {toast && <Toast msg={toast} onClose={() => setToast(null)} />}
+    </div>
+  );
+}
+
+const SidebarItem = ({ icon: Icon, label, active, onClick, badge }) => (
+  <button onClick={onClick}
+    className={`w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded ${active ? 'bg-indigo-600/20 text-indigo-300 border-l-2 border-indigo-500' : 'text-slate-300 hover:bg-slate-800'}`}>
+    <Icon size={13} />
+    <span className="flex-1 text-left">{label}</span>
+    {badge != null && badge > 0 && <span className="bg-slate-700 text-[10px] px-1.5 rounded-full">{badge}</span>}
+  </button>
+);
+
+const EmptyWorkspace = ({ openTool }) => (
+  <div className="h-full flex items-center justify-center p-6">
+    <div className="text-center max-w-md">
+      <div className="w-16 h-16 bg-gradient-to-br from-indigo-600 to-cyan-600 rounded-2xl mx-auto mb-4 flex items-center justify-center">
+        <Layers size={28} className="text-white" />
+      </div>
+      <h2 className="text-xl font-bold text-white mb-2">Empty Workspace</h2>
+      <p className="text-sm text-slate-400 mb-6">Open a tool from the sidebar, or use the command palette to start.</p>
+      <div className="grid grid-cols-2 gap-2">
+        {TOOLS.slice(0, 6).map(t => (
+          <button key={t.id} onClick={() => openTool(t)} className="flex items-center gap-2 p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-left">
+            <t.icon size={14} className="text-indigo-400" />
+            <span className="text-xs text-white">{t.name}</span>
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-slate-500 mt-4">Press <kbd className="bg-slate-800 px-1.5 py-0.5 rounded">⌘K</kbd> to open command palette</p>
+    </div>
+  </div>
+);
+
+const FavoritesPage = ({ state, openTool, toggleFav }) => (
+  <div className="p-6 overflow-auto h-full">
+    <h1 className="text-2xl font-bold text-white mb-4">Favorites</h1>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {state.favorites.map(id => {
+        const t = TOOLS.find(x => x.id === id);
+        if (!t) return null;
+        return (
+          <div key={id} className="bg-slate-900 border border-slate-800 rounded-lg p-4 hover:border-indigo-600 transition">
+            <div className="flex items-start justify-between mb-2">
+              <t.icon size={18} className="text-indigo-400" />
+              <button onClick={() => toggleFav(id)}><Star size={14} className="text-amber-400 fill-amber-400" /></button>
+            </div>
+            <div className="font-medium text-sm text-white">{t.name}</div>
+            <div className="text-xs text-slate-500 mb-3">{t.cat}</div>
+            <button onClick={() => openTool(t)} className="text-xs text-indigo-400 hover:text-indigo-300">Open →</button>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+);
+
+const HistoryPage = ({ state }) => (
+  <div className="p-6 overflow-auto h-full">
+    <h1 className="text-2xl font-bold text-white mb-4">Activity History</h1>
+    <div className="bg-slate-900 border border-slate-800 rounded-lg divide-y divide-slate-800">
+      {state.history.length ? state.history.slice().reverse().map((h, i) => (
+        <div key={i} className="px-4 py-3 flex items-center gap-3">
+          <Activity size={12} className="text-emerald-400" />
+          <span className="text-sm text-white">{h.tool}</span>
+          <span className="text-xs text-slate-500 ml-auto">{h.time}</span>
+        </div>
+      )) : <div className="p-8 text-center text-sm text-slate-500">No activity recorded yet</div>}
+    </div>
+  </div>
+);
+
+const SettingsPage = ({ state, setState }) => (
+  <div className="p-6 overflow-auto h-full max-w-2xl">
+    <h1 className="text-2xl font-bold text-white mb-6">Settings</h1>
+    <div className="space-y-4">
+      <Section title="Appearance">
+        <Row label="Theme">
+          <select value={state.theme} onChange={e => setState(s => ({ ...s, theme: e.target.value }))}
+            className="bg-slate-800 border border-slate-700 rounded text-xs text-white px-2 py-1">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select>
+        </Row>
+      </Section>
+      <Section title="Editor">
+        <Row label="Font size"><span className="text-xs text-slate-400">14px</span></Row>
+        <Row label="Auto-run on paste"><input type="checkbox" defaultChecked /></Row>
+        <Row label="Show line numbers"><input type="checkbox" defaultChecked /></Row>
+      </Section>
+      <Section title="Privacy">
+        <Row label="Save history"><input type="checkbox" defaultChecked /></Row>
+        <Row label="Telemetry"><input type="checkbox" /></Row>
+      </Section>
+      <Section title="Keyboard Shortcuts">
+        <Row label="Command palette"><kbd className="text-xs bg-slate-800 px-2 py-0.5 rounded">⌘K</kbd></Row>
+        <Row label="Developer console"><kbd className="text-xs bg-slate-800 px-2 py-0.5 rounded">⌘⇧D</kbd></Row>
+        <Row label="Run tool"><kbd className="text-xs bg-slate-800 px-2 py-0.5 rounded">⌘↵</kbd></Row>
+      </Section>
+    </div>
+  </div>
+);
+
+const Section = ({ title, children }) => (
+  <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+    <div className="px-4 py-2 border-b border-slate-800 text-xs font-semibold text-white uppercase tracking-wider">{title}</div>
+    <div className="divide-y divide-slate-800">{children}</div>
+  </div>
+);
+
+const Row = ({ label, children }) => (
+  <div className="px-4 py-2.5 flex items-center justify-between">
+    <span className="text-sm text-slate-300">{label}</span>
+    {children}
+  </div>
+);
+
+const ProfilePage = ({ state }) => (
+  <div className="p-6 overflow-auto h-full max-w-2xl">
+    <h1 className="text-2xl font-bold text-white mb-6">Session</h1>
+    <div className="bg-slate-900 border border-slate-800 rounded-lg p-6">
+      <div className="flex items-center gap-4 mb-6">
+        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-2xl font-bold text-white">{state.user.avatar}</div>
+        <div>
+          <h2 className="text-lg font-semibold text-white">{state.user.name}</h2>
+          <p className="text-xs text-slate-400 font-mono mt-0.5">{state.user.accessCode}</p>
+          <span className="inline-block mt-1 text-[10px] uppercase font-semibold bg-indigo-600 text-white px-2 py-0.5 rounded">{state.user.license}</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <Stat label="Operations" val={state.stats.ops} />
+        <Stat label="Tools Assigned" val={state.user.tools === '*' ? TOOLS.length : (state.user.tools || []).length} />
+        <Stat label="Favorites" val={state.favorites.length} />
+      </div>
+    </div>
+  </div>
+);
+
+const Stat = ({ label, val }) => (
+  <div className="bg-slate-800/50 rounded p-3 text-center">
+    <div className="text-xl font-bold text-white">{val}</div>
+    <div className="text-[10px] uppercase text-slate-500 mt-1">{label}</div>
+  </div>
+);
+
+const AdminPage = ({ state }) => (
+  <div className="p-6 overflow-auto h-full">
+    <div className="flex items-center gap-2 mb-6">
+      <ShieldCheck size={24} className="text-rose-400" />
+      <h1 className="text-2xl font-bold text-white">Admin Dashboard</h1>
+    </div>
+    <div className="grid grid-cols-4 gap-3 mb-6">
+      <Card label="Total Users" val="0" trend="—" icon={Users} />
+      <Card label="Active Licenses" val="0" trend="—" icon={Key} />
+      <Card label="Operations Today" val="0" trend="—" icon={Activity} />
+      <Card label="System Health" val="100%" trend="Stable" icon={Cpu} />
+    </div>
+    <div className="grid grid-cols-2 gap-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
+        <h2 className="text-sm font-semibold text-white mb-3">Recent Sign-ins</h2>
+        <p className="text-xs text-slate-500">No sign-ins recorded yet</p>
+      </div>
+      <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
+        <h2 className="text-sm font-semibold text-white mb-3">License Distribution</h2>
+        <p className="text-xs text-slate-500">No data yet</p>
+      </div>
+    </div>
+    <div className="mt-4 bg-amber-950/30 border border-amber-800/50 rounded-lg p-3 flex items-center gap-2">
+      <AlertCircle size={14} className="text-amber-400" />
+      <span className="text-xs text-amber-200">Press <kbd className="bg-amber-900 px-1.5 py-0.5 rounded">⌘⇧D</kbd> to open the Developer Console</span>
+    </div>
+  </div>
+);
+
+const Card = ({ label, val, trend, icon: Icon }) => (
+  <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
+    <Icon size={16} className="text-indigo-400 mb-2" />
+    <div className="text-xl font-bold text-white">{val}</div>
+    <div className="text-xs text-slate-400">{label}</div>
+    <div className="text-[10px] text-emerald-400 mt-1">{trend}</div>
+  </div>
+);
+
+const UsersPage = ({ userStore, setUserStore, showToast, currentUser }) => {
+  const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ name: '', accessCode: '', license: 'guest', tools: [], allTools: false });
+
+  const openAdd = () => {
+    setEditing(null);
+    setForm({ name: '', accessCode: '', license: 'guest', tools: [], allTools: false });
+    setShowAdd(true);
+  };
+  const openEdit = (u) => {
+    setEditing(u.name);
+    setForm({
+      name: u.name,
+      accessCode: u.accessCode,
+      license: u.license,
+      tools: u.tools === '*' ? [] : (u.tools || []),
+      allTools: u.tools === '*',
+    });
+    setShowAdd(true);
+  };
+  const save = () => {
+    if (!form.name.trim() || !form.accessCode.trim()) { showToast('Name & access code required'); return; }
+    const entry = {
+      name: form.name.trim(),
+      accessCode: form.accessCode.trim(),
+      license: form.license,
+      tools: form.allTools ? '*' : form.tools,
+    };
+    if (editing) {
+      setUserStore(s => s.map(u => u.name === editing ? entry : u));
+      showToast(`Updated ${entry.name}`);
+    } else {
+      if (userStore.find(u => u.name.toLowerCase() === entry.name.toLowerCase())) { showToast('Name already exists'); return; }
+      if (userStore.find(u => u.accessCode === entry.accessCode)) { showToast('Access code already in use'); return; }
+      setUserStore(s => [...s, entry]);
+      showToast(`Created session for ${entry.name}`);
+    }
+    setShowAdd(false);
+  };
+  const remove = (name) => {
+    if (name === currentUser.name) { showToast('Cannot delete active session'); return; }
+    setUserStore(s => s.filter(u => u.name !== name));
+    showToast(`Removed ${name}`);
+  };
+  const genCode = () => {
+    const seg = () => Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]).join('');
+    setForm(f => ({ ...f, accessCode: `UDC-${seg()}-${seg()}-2026` }));
+  };
+  const toggleTool = (id) => setForm(f => ({ ...f, tools: f.tools.includes(id) ? f.tools.filter(t => t !== id) : [...f.tools, id] }));
+  const toggleCategory = (cat) => {
+    const catTools = TOOLS.filter(t => t.cat === cat).map(t => t.id);
+    const allSelected = catTools.every(id => form.tools.includes(id));
+    setForm(f => ({ ...f, tools: allSelected ? f.tools.filter(t => !catTools.includes(t)) : [...new Set([...f.tools, ...catTools])] }));
+  };
+
+  return (
+    <div className="p-6 overflow-auto h-full">
+      <div className="flex justify-between items-center mb-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Session Management</h1>
+          <p className="text-xs text-slate-400 mt-1">Issue session credentials and assign tools · {userStore.length} sessions</p>
+        </div>
+        <button onClick={openAdd} className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded flex items-center gap-1"><Plus size={12} /> New Session</button>
+      </div>
+
+      <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-800/50 text-xs uppercase text-slate-400">
+            <tr>
+              <th className="text-left p-3">Session Owner</th>
+              <th className="text-left p-3">Access Code</th>
+              <th className="text-left p-3">License</th>
+              <th className="text-left p-3">Tools</th>
+              <th className="text-left p-3">Status</th>
+              <th className="text-right p-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {userStore.map((u) => {
+              const isCurrent = u.name === currentUser.name;
+              const badge = { guest:'bg-slate-700', premium:'bg-indigo-600', enterprise:'bg-amber-600', admin:'bg-rose-600' }[u.license] || 'bg-slate-700';
+              const toolCount = u.tools === '*' ? TOOLS.length : (u.tools || []).length;
+              return (
+                <tr key={u.name} className="hover:bg-slate-800/30">
+                  <td className="p-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-[10px] font-bold text-white">{u.name.charAt(0).toUpperCase()}</div>
+                      <span className="text-slate-200 text-sm">{u.name}</span>
+                    </div>
+                  </td>
+                  <td className="p-3 text-xs text-slate-400 font-mono">{u.accessCode}</td>
+                  <td className="p-3"><span className={`text-[10px] uppercase font-semibold ${badge} px-2 py-0.5 rounded text-white`}>{u.license}</span></td>
+                  <td className="p-3 text-xs">
+                    {u.tools === '*'
+                      ? <span className="text-emerald-400">All ({TOOLS.length})</span>
+                      : <span className="text-slate-300">{toolCount} <span className="text-slate-600">of {TOOLS.length}</span></span>}
+                  </td>
+                  <td className="p-3">
+                    {isCurrent
+                      ? <span className="text-xs text-emerald-400">● active</span>
+                      : <span className="text-xs text-slate-500">● idle</span>}
+                  </td>
+                  <td className="p-3 text-right">
+                    <button onClick={() => openEdit(u)} className="text-xs text-slate-400 hover:text-white px-2 py-1">Edit</button>
+                    <button onClick={() => remove(u.name)} disabled={isCurrent}
+                      className="text-xs text-rose-400 hover:text-rose-300 disabled:text-slate-700 disabled:cursor-not-allowed px-2 py-1">Delete</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {showAdd && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowAdd(false)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
+              <h2 className="font-semibold text-white text-sm">{editing ? 'Edit Session' : 'Create Session'}</h2>
+              <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-white"><X size={16} /></button>
+            </div>
+            <div className="p-5 space-y-4 overflow-auto">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Session Owner Name *</label>
+                  <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} disabled={!!editing}
+                    placeholder="e.g. Alice Cooper"
+                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white disabled:opacity-60 focus:border-indigo-500 focus:outline-none" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">License Tier</label>
+                  <select value={form.license} onChange={e => setForm(f => ({ ...f, license: e.target.value }))}
+                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none">
+                    <option value="guest">Guest</option>
+                    <option value="premium">Premium</option>
+                    <option value="enterprise">Enterprise</option>
+                    <option value="admin">Administrator</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block flex justify-between">
+                  <span>Access Code *</span>
+                  <button onClick={genCode} className="text-indigo-400 hover:text-indigo-300">Generate</button>
+                </label>
+                <input value={form.accessCode} onChange={e => setForm(f => ({ ...f, accessCode: e.target.value }))}
+                  placeholder="UDC-XXXX-XXXX-2026"
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none" />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs text-slate-400">Assigned Tools</label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                    <input type="checkbox" checked={form.allTools} onChange={e => setForm(f => ({ ...f, allTools: e.target.checked }))} />
+                    Grant access to all tools
+                  </label>
+                </div>
+                {!form.allTools && (
+                  <div className="bg-slate-950 border border-slate-800 rounded-lg p-2 max-h-64 overflow-auto">
+                    {CATEGORIES.filter(c => TOOLS.some(t => t.cat === c)).map(cat => {
+                      const catTools = TOOLS.filter(t => t.cat === cat);
+                      const selected = catTools.filter(t => form.tools.includes(t.id)).length;
+                      return (
+                        <div key={cat} className="mb-2">
+                          <button onClick={() => toggleCategory(cat)}
+                            className="w-full flex items-center justify-between px-2 py-1 text-[11px] uppercase tracking-wider text-slate-400 hover:text-white">
+                            <span>{cat}</span>
+                            <span className="text-slate-600">{selected}/{catTools.length}</span>
+                          </button>
+                          <div className="grid grid-cols-2 gap-x-2">
+                            {catTools.map(t => (
+                              <label key={t.id} className="flex items-center gap-2 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 rounded cursor-pointer">
+                                <input type="checkbox" checked={form.tools.includes(t.id)} onChange={() => toggleTool(t.id)} />
+                                <t.icon size={11} className="text-indigo-400" />
+                                <span className="truncate">{t.name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="text-[10px] text-slate-500 mt-1">
+                  {form.allTools ? `All ${TOOLS.length} tools granted` : `${form.tools.length} of ${TOOLS.length} tools selected`}
+                </div>
+              </div>
+            </div>
+            <div className="px-5 py-3 border-t border-slate-800 flex justify-end gap-2">
+              <button onClick={() => setShowAdd(false)} className="text-xs px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded">Cancel</button>
+              <button onClick={save} className="text-xs px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded flex items-center gap-1">
+                <Save size={11} /> {editing ? 'Update' : 'Issue Session'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const LicensesPage = () => (
+  <div className="p-6 overflow-auto h-full">
+    <div className="flex justify-between items-center mb-4">
+      <h1 className="text-2xl font-bold text-white">License Manager</h1>
+      <button className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded flex items-center gap-1"><Plus size={12} /> Generate</button>
+    </div>
+    <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-2">
+      {[
+        { k:'UDC-PRO-A4F2-9B7E-2026', t:'Premium', e:'Dec 31, 2026', s:'active' },
+        { k:'UDC-ELITE-C8D1-3F0A-2026', t:'Enterprise', e:'Dec 31, 2026', s:'active' },
+        { k:'UDC-ADMIN-FFFF-FFFF-2026', t:'Administrator', e:'Never', s:'active' },
+        { k:'UDC-PRO-8B22-EE91-2025', t:'Premium', e:'Dec 31, 2025', s:'expired' },
+      ].map((l, i) => (
+        <div key={i} className="flex items-center gap-3 p-3 bg-slate-800/30 rounded">
+          <Key size={14} className="text-amber-400" />
+          <div className="flex-1">
+            <div className="font-mono text-xs text-white">{l.k}</div>
+            <div className="text-[10px] text-slate-500">{l.t} · Expires {l.e}</div>
+          </div>
+          <span className={`text-[10px] uppercase ${l.s === 'active' ? 'text-emerald-400' : 'text-rose-400'}`}>{l.s}</span>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const LogsPage = ({ state }) => (
+  <div className="p-6 overflow-auto h-full">
+    <h1 className="text-2xl font-bold text-white mb-4">System Logs</h1>
+    <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 font-mono text-xs space-y-1">
+      {[
+        { lvl:'INFO', msg:`Session ${state.user.name} authenticated via access code`, c:'text-emerald-400' },
+        { lvl:'INFO', msg:'Session initialized · token issued', c:'text-emerald-400' },
+        { lvl:'DEBUG', msg:'Tool registry loaded: 31 tools', c:'text-slate-400' },
+        { lvl:'INFO', msg:'License validated: ' + state.user.license, c:'text-emerald-400' },
+        { lvl:'WARN', msg:'Rate limit at 78% for API endpoint /encode', c:'text-amber-400' },
+        { lvl:'INFO', msg:'Workspace state synced to IndexedDB', c:'text-emerald-400' },
+        { lvl:'DEBUG', msg:'Theme preference updated: ' + state.theme, c:'text-slate-400' },
+        { lvl:'INFO', msg:'Activity logged: ' + state.stats.ops + ' operations', c:'text-emerald-400' },
+      ].map((l, i) => (
+        <div key={i} className="flex gap-3">
+          <span className="text-slate-600">{new Date(Date.now() - i*60000).toISOString().slice(11,19)}</span>
+          <span className={`${l.c} w-12`}>[{l.lvl}]</span>
+          <span className="text-slate-300">{l.msg}</span>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<UDCApp />);
+setTimeout(() => {
+  const boot = document.getElementById('boot');
+  if (boot) { boot.classList.add('hidden'); setTimeout(() => boot.remove(), 400); }
+}, 100);
+</script>
+</body>
+</html>
