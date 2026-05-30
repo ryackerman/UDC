@@ -10,6 +10,27 @@
 <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
 <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.7/babel.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyCOYiP5maPKDs44qmVnfq3LhsXk4Qdo7xM",
+    authDomain: "udc-sessions.firebaseapp.com",
+    databaseURL: "https://udc-sessions-default-rtdb.firebaseio.com",
+    projectId: "udc-sessions",
+    storageBucket: "udc-sessions.firebasestorage.app",
+    messagingSenderId: "830950327232",
+    appId: "1:830950327232:web:5552ef9cc5eb584fcf3e25"
+  };
+  try {
+    firebase.initializeApp(firebaseConfig);
+    window.__udcDB = firebase.database();
+    console.log('[UDC] Firebase initialized');
+  } catch (e) {
+    console.error('[UDC] Firebase init failed:', e);
+    window.__udcDB = null;
+  }
+</script>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   html, body, #root { height: 100%; margin: 0; }
@@ -742,20 +763,44 @@ function UDCApp() {
     } catch {}
     return initialState;
   });
-  const [userStore, setUserStore] = useState(() => {
-    try {
-      const saved = localStorage.getItem('udc_user_store');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length) return parsed;
-      }
-    } catch {}
-    return DEFAULT_USERS;
-  });
+  const [userStore, setUserStore] = useState(DEFAULT_USERS);
+  const [storeReady, setStoreReady] = useState(false);
 
+  // Firebase subscription — live sync user store across all devices
   useEffect(() => {
-    try { localStorage.setItem('udc_user_store', JSON.stringify(userStore)); } catch {}
-  }, [userStore]);
+    if (!window.__udcDB) { setStoreReady(true); return; }
+    const ref = window.__udcDB.ref('sessions');
+    const handler = ref.on('value', (snap) => {
+      const val = snap.val();
+      if (val && typeof val === 'object') {
+        const arr = Object.values(val);
+        // Always ensure default admin exists
+        if (!arr.find(u => u.license === 'admin')) {
+          arr.push(DEFAULT_USERS[0]);
+        }
+        setUserStore(arr);
+      } else {
+        // First-time init: seed with default admin
+        ref.set({ admin: DEFAULT_USERS[0] });
+      }
+      setStoreReady(true);
+    }, () => setStoreReady(true));
+    return () => ref.off('value', handler);
+  }, []);
+
+  // Persist mutations to Firebase
+  const persistUserStore = (next) => {
+    setUserStore(next);
+    if (window.__udcDB) {
+      const obj = {};
+      next.forEach((u, i) => {
+        // Use sanitized name as key (Firebase keys can't contain . # $ [ ] /)
+        const key = (u.name || `u${i}`).replace(/[.#$\[\]\/]/g, '_');
+        obj[key] = u;
+      });
+      window.__udcDB.ref('sessions').set(obj).catch(() => {});
+    }
+  };
   const [page, setPage] = useState('dashboard');
   const [sidebarCat, setSidebarCat] = useState({});
   const [toast, setToast] = useState(null);
@@ -1043,7 +1088,7 @@ function UDCApp() {
             {page === 'settings' && <SettingsPage state={state} setState={setState} />}
             {page === 'profile' && <ProfilePage state={state} />}
             {page === 'admin' && <AdminPage state={state} />}
-            {page === 'users' && <UsersPage userStore={userStore} setUserStore={setUserStore} showToast={showToast} currentUser={state.user} />}
+            {page === 'users' && <UsersPage userStore={userStore} setUserStore={persistUserStore} showToast={showToast} currentUser={state.user} />}
             {page === 'licenses' && <LicensesPage />}
             {page === 'logs' && <LogsPage state={state} />}
           </div>
