@@ -732,8 +732,30 @@ function DevConsole({ state, onClose }) {
 
 // ============ MAIN APP ============
 function UDCApp() {
-  const [state, setState] = useState(initialState);
-  const [userStore, setUserStore] = useState(DEFAULT_USERS);
+  const [state, setState] = useState(() => {
+    try {
+      const saved = localStorage.getItem('udc_session');
+      if (saved) {
+        const user = JSON.parse(saved);
+        return { ...initialState, user, license: user.license };
+      }
+    } catch {}
+    return initialState;
+  });
+  const [userStore, setUserStore] = useState(() => {
+    try {
+      const saved = localStorage.getItem('udc_user_store');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length) return parsed;
+      }
+    } catch {}
+    return DEFAULT_USERS;
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('udc_user_store', JSON.stringify(userStore)); } catch {}
+  }, [userStore]);
   const [page, setPage] = useState('dashboard');
   const [sidebarCat, setSidebarCat] = useState({});
   const [toast, setToast] = useState(null);
@@ -752,11 +774,15 @@ function UDCApp() {
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2200); };
 
   const login = (user) => {
+    try { localStorage.setItem('udc_session', JSON.stringify(user)); } catch {}
     setState(s => ({ ...s, user, license: user.license }));
     showToast(`Welcome, ${user.name}`);
   };
 
-  const logout = () => setState(initialState);
+  const logout = () => {
+    try { localStorage.removeItem('udc_session'); } catch {}
+    setState(initialState);
+  };
 
   const hasToolAccess = (toolId) => {
     if (!state.user) return false;
@@ -1465,7 +1491,6 @@ const LogsPage = ({ state }) => (
     </div>
   </div>
 );
-
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<UDCApp />);
